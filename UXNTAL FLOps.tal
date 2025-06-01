@@ -1,0 +1,151 @@
+( UXNTAL FLOps )
+
+
+
+|0100
+
+( flh and fl# are IEEE half precision floats )
+( s is 2 bytes masked to just the sign bit )
+( e is 2 bytes masked to just the exponent )
+( m is 2 bytes masked to just the mantissa )
+
+#3e00 ;print-float JSR2 #0a #18 DEO POP2 ( should be 1.5 )
+#0400 ;print-float JSR2 #0a #18 DEO POP2 ( should be the minimal normal )
+#7bff ;print-float JSR2 #0a #18 DEO POP2 ( should be the maximal normal )
+#3e00 #3e00 ;float-mult JSR2 ;print-float JSR2 #0a #18 DEO POP2 ( should be 2.25 )
+#3555 ;print-float JSR2 #0a #18 DEO POP2 ( should be approx 1/3 )
+#3c00 #3555 ;float-mult JSR2 ;print-float JSR2 #0a #18 DEO POP2 ( should be approx 1/3 )
+#7bff #0400 ;float-mult JSR2 ;print-float JSR2 #0a #18 DEO POP2 ( should be 2^1*(7ff/400) )
+BRK
+
+( m m -- m )
+@mantissa-mult         ( m1h m1l m2h m2l )
+   SWP ROT             ( m1h m2l m2h m1l )
+   #00 SWP ROT #00 SWP ( m1h m2l 00  m1l 00  m2h )
+   MUL2k               ( m1h m2l 00  m1l 00  m2h m3l1[s] )
+   ROT2 POP2           ( m1h m2l 00  m2h m3l1[s] )
+   ROT2                ( 00  m2h m3l1[s] m1h m2l )
+   #00 SWP ROT #00 SWP ( 00  m2h m3l1[s] 00  m2l 00  m1h )
+   MUL2k               ( 00  m2h m3l1[s] 00  m2l 00  m1h m3l2[s] )
+   ROT2 POP2           ( 00  m2h m3l1[s] 00  m1h m3l2[s] )
+   ROT2 ADD2 #02 SFT2  ( 00  m2h 00  m1h m3l3[s] )
+   ROT2 ROT2 MUL2      ( m3l3[s] m3h1[s] )
+   #60 SFT2 ADD2       ( m3 )
+   JMP2r
+
+( 0x -- )
+@print-hex
+   #0a LTHk NIP #03 JCN
+   #27 ADD
+   #30 ADD #18 DEO
+   JMP2r
+
+( hi lo -- )
+@print-4hex
+   SWP DUP #f0 AND #04 SFT ;print-hex JSR2
+   #0f AND ;print-hex JSR2
+   DUP #f0 AND #04 SFT ;print-hex JSR2
+   #0f AND ;print-hex JSR2
+   JMP2r
+
+( flh -- flh ) ( won't add newline )
+@print-float 
+   #8000 AND2k NIP2
+   #8000 LTH2 ,&pos JCN
+   LIT "- #18 DEO
+   &pos
+   #28 #18 DEO ( open paren )
+   #0300 AND2k NIP2 POP #04 ADD print-hex
+   #00f0 AND2k NIP2 NIP #04 SFT print-hex
+   #000f AND2k NIP2 NIP print-hex
+   LIT "/ #18 DEO
+   LIT "4 #18 DEO
+   LIT "0 #18 DEO
+   LIT "0 #18 DEO
+   #29 #18 DEO ( close paren )
+   LIT "* #18 DEO
+   LIT "2 #18 DEO
+   LIT "^ #18 DEO
+   #28 #18 DEO ( open paren for exponent )
+   #7c00 AND2k NIP2
+   #3b00 GTH2k NIP NIP ,&pos_ex JCN
+   ( negative handling )
+   LIT "- #18 DEO
+   #3c00 SWP2 SUB2 
+   ,&prnt_ex JMP
+   &pos_ex 
+   #3c00 SUB2
+   &prnt_ex
+   #06 SFT2 #04 SFT SWP print-hex print-hex
+   #29 #18 DEO ( close paren for exponent )
+   JMP2r
+
+
+( flh flh -- flh )
+@float-mult ( fl2 fl1 )
+   &exponent
+   #7c00 AND2k NIP2                     ( fl2 fl1 e1 )
+   ROT2                                 ( fl1 e1 fl2 )
+   #7c00 AND2k NIP2                     ( fl1 e1 fl2 e2 )
+   ROT2                                 ( fl1 fl2 e2 e1 )
+   #0000 NEQ2k NIP NIP ?{ ;subnormal JMP2 } ( fl1 fl2 e2 e1 )
+   #7c00 NEQ2k NIP NIP ?{ ;naninf JMP2 } ( fl1 fl2 e2 e1 )
+   SWP2                                 ( fl1 fl2 e1 e2 )
+   #0000 NEQ2k NIP NIP ?{ ;subnormal JMP2 } ( fl1 fl2 e1 e2 )
+   #7c00 NEQ2k NIP NIP ?{ ;naninf JMP2 } ( fl1 fl2 e1 e2 )
+   ADD2 #3c00 SUB2                      ( fl1 fl2 e3 )( this works because the sign bit can hold the overflow )
+   SWP2 ROT2                            ( e3 fl2 fl1 )
+   &sign
+   EOR2k                                ( e3 fl2 fl1 s3* )
+   #8000 AND2                           ( e3 fl2 fl1 s3 ) 
+   ROT2 ROT2                            ( e3 s3 fl2 fl1 )
+   &mantissa
+   #03ff AND2                           ( e3 s3 fl2 m1 )
+   SWP2                                 ( e3 s3 m1 fl2 )
+   #03ff AND2                           ( e3 s3 m1 m2 )
+   #0400 ADD2 SWP2 #0400 ADD2           ( e3 s3 m1 m2 )
+   ;mantissa-mult JSR2                  ( e3 s3 m3 )
+   #0400 SUB2                           ( e3 s3 m3 )
+   &overflow
+   DUP2 #0400 LTH2
+   ;float-mult/combine JCN2             ( e3 s3 m3 ) ( jump past overflow handling )
+   #0400 SUB2 #01 SFT2 #0400 ADD2       ( e3 s3 m3 )
+   &combine
+   ADD2 ADD2                            ( fl3 )
+   JMP2r
+
+( fl1 fl2 e e )
+@subnormal
+   EOR2 ( fl1 fl2 en0 )
+   #7c00 NEQ2k NIP NIP ?{ POP2 EOR2 #0001 ORA2 JMP2r }       ( fl1 fl2 en0 ) ( THIS IS HANDLED WRONG!!!! )
+   #0000 EQU2 ?{                                             ( fl1 fl2 )
+      #7c00 AND2k NIP2                                       ( fl1 fl2 e2 ) 
+      #0000 NEQ2 ?{ SWP2 }                                   ( fl0 fln0 )
+      #03ff AND2k NIP2                                       ( fl0 fln0 mn0 )
+      #0400 ADD2                                             ( fl0 fln0 mn0+1 )
+      ROT2                                                   ( fln0 mn0+1 fl0 )
+      #03ff AND2k NIP2                                       ( fln0 mn0+1 fl0 m0 )
+      ROT2 ;mantissa-mult JSR2                               ( fln0 fl0 m3 )
+      ROT2 SWP2                                              ( fl0 fln0 m3 )
+      &shift-loop
+      #03ff GTH2k NIP NIP ?{ SWP2 ;&shift-done JMP2 }        ( fl0 fln0 m3 )
+      SWP2 #7c00 AND2 NIP2 #0000 EQU2 ?{ ;&shift-done JMP2 } ( fl0 m3 fln0 )
+      #0400 SUB2 SWP2                                        ( fl0 fln0 m3 )
+      #10 SFT2 ;&shift-loop JMP2                             ( fl0 fln0 m3 )
+      &shift-done                                            ( fl0 m3 fln0 )
+      ROT2 SWP2                                              ( m3 fl0 fln0 )
+      #7c00 AND2k NIP2                                       ( m3 fl0 fln0 en0 )
+      SWP2 #8000 AND2                                        ( m3 fl0 en0 sn0 )
+      ROT2 #8000 AND2 EOR2                                   ( m3 en0 s3 )
+      ROT2 ;float-mult/overflow JMP2                         ( e3 s3 m3 )
+   }
+   &both-subn                                                ( fl1 fl2 )
+   #03ff AND2k NIP2                                          ( fl1 fl2 m2 )
+   ROT2 #03ff AND2k NIP2                                     ( fl2 m2 fl1 m1 )
+   ROT2 ;mantissa-mult JSR2                                  ( fl2 fl1 m3 )
+   SWP2 ROT2 EOR2 #8000 AND2 ORA2                            ( fl3 )
+   JMP2r
+
+@naninf
+
+
