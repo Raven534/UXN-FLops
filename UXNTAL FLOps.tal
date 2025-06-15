@@ -22,6 +22,14 @@
 #0200 #0200 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be 0000 )
 #0200 #3c00 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be 0200 )
 #0200 #7800 ;float-mult JSR2 ;print-float JSR2 #0a #18 DEO ( should be 1 )
+
+#fc00 #0000 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be fe00 ) ( good )
+#0000 #fc00 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be fe00 ) ( good )
+#7c00 #8320 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be fc00 ) ( good )
+#e543 #fc00 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be 7c00 ) ( good )
+#fe00 #3bcd ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be fe00 ) ( good )
+#3bcd #fe00 ;float-mult JSR2 ;print-4hex JSR2 #0a #18 DEO ( should be fe00 ) ( good )
+
 BRK
 
 ( m m -- m )
@@ -99,7 +107,7 @@ BRK
    SWP2                                 ( fl1 fl2 e1 e2 )
    DUP2 #0000 NEQ2 ?{ ;subnormal JMP2 } ( fl1 fl2 e1 e2 )
    DUP2 #7c00 NEQ2 ?{ ;naninf JMP2 }    ( fl1 fl2 e1 e2 )
-   ADD2 #3c00 SUB2                      ( fl1 fl2 e3 )( this works because the sign bit can hold the overflow )
+   ADD2 #3c00 SUB2                      ( fl1 fl2 e3 ) ( this works because the sign bit can hold the overflow )
    SWP2 ROT2                            ( e3 fl2 fl1 )
    &sign
    EOR2k                                ( e3 fl2 fl1 s3* )
@@ -123,7 +131,19 @@ BRK
 ( fl1 fl2 e e )
 @subnormal
    EOR2 ( fl1 fl2 en0 )
-   DUP2 #7c00 NEQ2 ?{ POP2 EOR2 #0001 ORA2 JMP2r }           ( fl1 fl2 en0 ) ( THIS IS HANDLED WRONG!!!! )
+   DUP2 #7c00 NEQ2 ?{                                        ( fl1 fl2 en0 )
+      POP2 DUP2 #7c00 AND2                                   ( fl1 fl2 e2 )
+      #0000 NEQ2 ?{ SWP2 }                                   ( fl0 inf )
+      DUP2 #03ff AND2 #0000 EQU2 ?{                          ( fl0 nan )
+         NIP2 JMP2r                                          ( returns the nan passed to it )
+      }
+      SWP2 DUP2 #03ff AND2 #0000 EQU2 ?{                     ( inf subn )
+         #8000 AND2 EOR2
+         JMP2r                                               ( returns infinity with sign properly modified )
+      }
+      EOR2 #0200 ORA2 JMP2r                                  ( returns a quiet nan )
+   }
+                                                             ( fl1 fl2 en0 )
    #0000 EQU2 ?{                                             ( fl1 fl2 )
       #7c00 AND2k NIP2                                       ( fl1 fl2 e2 ) 
       #0000 NEQ2 ?{ SWP2 }                                   ( fl0 fln0 )
@@ -157,4 +177,20 @@ BRK
    EOR2 #8000 AND2 ORA2                                      ( fl3 )
    JMP2r
 
-@naninf
+@naninf                                                      ( fl1 fl2 e einf )
+   EOR2 #0000 EQU2 ?{                                        ( fl1 fl2 )
+      DUP2 #7c00 AND2                                        ( fl1 fl2 e2 )
+      #7c00 EQU2 ?{ SWP2 }                                   ( flh inf )
+      DUP2 #03ff AND2                                        ( flh inf minf )
+      #0000 EQU2 ?{ 
+         NIP2 JMP2r                                          ( returns the passed NaN )
+      }
+      SWP2 DUP2 #7fff AND2                                   ( inf flh flh-s )
+      #0000 NEQ2 ?{
+         EOR2 #0200 ADD2 JMP2r
+      }
+      #8000 AND2 EOR2 JMP2r 
+   }
+   ORA2k #03ff AND2                                          (  fl1 fl2 m  )
+   ROT2 ROT2 EOR2 #8000 AND2                                 (  m s  )
+   #7c00 ORA2 ORA2 JMP2r                                     (  fl3  )
